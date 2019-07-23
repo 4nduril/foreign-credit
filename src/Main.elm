@@ -228,11 +228,13 @@ amountToCurrencyString amount =
 
         cents =
             List.take 2 splittedAndReversed
+                |> List.reverse
                 |> String.join ""
                 |> String.padLeft 2 '0'
 
         euros =
             List.drop 2 splittedAndReversed
+                |> List.reverse
                 |> String.join ""
                 |> String.padLeft 1 '0'
     in
