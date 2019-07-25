@@ -1,5 +1,6 @@
 module Main exposing (main)
 
+import Amount exposing (Amount)
 import Bootstrap.Button as Button
 import Bootstrap.CDN as CDN
 import Bootstrap.Form as Form
@@ -9,12 +10,13 @@ import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
 import Bootstrap.Table as Table
 import Browser
-import Html exposing (Html, button, div, label, text)
-import Html.Attributes exposing (for, id, value)
+import Html exposing (Html, button, div, label, p, text)
+import Html.Attributes exposing (class, for, id, value)
 import Html.Events exposing (onClick, onInput)
 import Http
 import Iso8601
 import Json.Decode exposing (Decoder, field, float, map2)
+import Money
 import Round
 import Time exposing (Month(..), Posix, toDay, toMonth, toYear, utc)
 
@@ -40,11 +42,6 @@ type alias LedgerEntry =
     , rate : Float
     , date : Posix
     }
-
-
-type Amount
-    = Dr Int
-    | Cr Int
 
 
 init : () -> ( Model, Cmd Msg )
@@ -143,7 +140,7 @@ addUsdEntry : Int -> RateData -> Model -> Model
 addUsdEntry usd rateData model =
     let
         newEntry =
-            { amount = toAmount usd
+            { amount = Amount.fromInt usd
             , rate = rateData.eurRate
             , date = rateData.date
             }
@@ -161,7 +158,7 @@ addLedgerEntry usd rateData model =
                     -- use "half away from zero" rounding
                     |> Round.roundNumCom 0
                     |> round
-                    |> toAmount
+                    |> Amount.fromInt
             , rate = rateData.eurRate
             , date = rateData.date
             }
@@ -181,93 +178,22 @@ syncForeignAcc rateData model =
     else
         let
             oldLocalSaldo =
-                saldo ledgerEntries
+                Amount.saldo ledgerEntries
 
             newLocalSaldo =
-                saldo foreignAccount
-                    |> fromAmount
+                Amount.saldo foreignAccount
+                    |> Amount.toInt
                     |> toFloat
                     |> (\f -> rateData.eurRate * f)
                     -- Use "half away from zero" rounding
                     |> Round.roundNumCom 0
                     |> round
-                    |> toAmount
+                    |> Amount.fromInt
 
             syncEntry =
-                { amount = subtractAmounts newLocalSaldo oldLocalSaldo, rate = rateData.eurRate, date = rateData.date }
+                { amount = Amount.subtract newLocalSaldo oldLocalSaldo, rate = rateData.eurRate, date = rateData.date }
         in
         { model | ledgerEntries = syncEntry :: model.ledgerEntries }
-
-
-fromAmount : Amount -> Int
-fromAmount amount =
-    case amount of
-        Dr i ->
-            -i
-
-        Cr i ->
-            i
-
-
-toAmount : Int -> Amount
-toAmount amount =
-    if amount < 0 then
-        Dr (-1 * amount)
-
-    else
-        Cr amount
-
-
-amountToCurrencyString : Amount -> String
-amountToCurrencyString amount =
-    let
-        splittedAndReversed =
-            amountToString amount
-                |> String.split ""
-                |> List.reverse
-
-        cents =
-            List.take 2 splittedAndReversed
-                |> List.reverse
-                |> String.join ""
-                |> String.padLeft 2 '0'
-
-        euros =
-            List.drop 2 splittedAndReversed
-                |> List.reverse
-                |> String.join ""
-                |> String.padLeft 1 '0'
-    in
-    String.join "," [ euros, cents ]
-
-
-amountToString : Amount -> String
-amountToString amount =
-    case amount of
-        Cr int ->
-            String.fromInt int
-
-        Dr int ->
-            String.fromInt int
-
-
-saldo : List { a | amount : Amount } -> Amount
-saldo entries =
-    let
-        extractAndAddAmounts entry amount =
-            addAmounts amount entry.amount
-    in
-    List.foldl extractAndAddAmounts (Cr 0) entries
-
-
-addAmounts : Amount -> Amount -> Amount
-addAmounts a b =
-    toAmount (fromAmount a + fromAmount b)
-
-
-subtractAmounts : Amount -> Amount -> Amount
-subtractAmounts a b =
-    toAmount (fromAmount a - fromAmount b)
 
 
 subscriptions : Model -> Sub Msg
@@ -285,8 +211,8 @@ view model =
         [ CDN.stylesheet
         , viewTable model
         , viewInputs model
-        , div []
-            [ text "USD: ", text (amountToString (saldo model.foreignAccount)) ]
+        , p [ class "text-center h1" ]
+            [ text (Amount.toCurrencyString Money.USD (Amount.saldo model.foreignAccount)) ]
         ]
 
 
@@ -375,8 +301,7 @@ viewEntry entry =
                 )
             ]
         , Table.td []
-            [ text (amountToCurrencyString entry.amount)
-            , text " €"
+            [ text (Amount.toCurrencyString Money.EUR entry.amount)
             ]
         , Table.td []
             [ text (Round.round 5 entry.rate) ]
